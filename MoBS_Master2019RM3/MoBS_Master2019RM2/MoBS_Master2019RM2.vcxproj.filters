@@ -17,5 +17,9 @@
   <ItemGroup>
     <None Include="MoBS_Master2019RM2.ino" />
   </ItemGroup>
- 
+  <ItemGroup>
+    <ClInclude Include="__vm\.MoBS_Master2019RM2.vsarduino.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
 </Project>

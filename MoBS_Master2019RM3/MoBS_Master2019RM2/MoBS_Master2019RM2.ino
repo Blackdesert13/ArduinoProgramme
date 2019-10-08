@@ -9,6 +9,7 @@ byte RMEingang[10];//zu Aufnehmen des RM-Befehls vom Slave
 const int RMArdSo = 4;//Anzahl der zu lesenden RM Arduinos 
 SlaveRM SlaveRMAblage[RMArdSo];
 const byte NeuZeichnenBefehl[5] = { 1,19,0,0,20 };
+const byte AlleAusgaengeSendenBefehl[5] = { 1,49,0,0,50 };
 const byte ArdNr = 1;//ArduinoNummer
 					 //Rückmeldung
 //unsigned long TimeNextRMAbfrage = 0;//
@@ -46,6 +47,8 @@ void setup()
 	delay(3);
 	RMSlaveDefinition();
 	//SlaveAktivAbfrage();
+
+	Serial.write(AlleAusgaengeSendenBefehl, 5);
 }
 
 void loop()
@@ -164,10 +167,10 @@ void RMvonSlavesNeu()
 			int bz = 0;
 			while (Wire.available()) {    // slave may send less than requested
 				RMEingang[bz] = Wire.read(); // receive a byte as character
-				//if (RMAlleSenden) {
-				//Serial.write(RMEingang[bz]);
-					//senden = true;
-				//}
+				if (RMAlleSenden) {
+					Serial.write(RMEingang[bz]);
+					senden = true;
+				}
 				bz++;
 
 			}
@@ -238,10 +241,10 @@ void RMvonSlavesNeu()
 			//Serial.write(SlaveRMAblage[2].Befehl0[0]);
 		}
 
-		//if (RMAlleSenden) {
-		//	Serial.write(NeuZeichnenBefehl, 5);
-		//	RMAlleSenden = false;
-		//}
+		if (RMAlleSenden) {
+			Serial.write(NeuZeichnenBefehl, 5);
+			RMAlleSenden = false;
+		}
 		
 	}
 }
@@ -274,17 +277,17 @@ void BefehlsAusfuerung(byte Befehl[5])
 	// int a = 0;
 	switch (Befehl[1])
 	{
-	case 1:
-	{//Slave abfrage einfügen
-		SlaveAktivAbfrage();
-		//Serial.write(98);
-		break;
-	}
-	case 2:
-	{
-		SlaveAktivListe = 0;
-		break;
-	}
+	//case 1:
+	//{//Slave abfrage einfügen
+	//	SlaveAktivAbfrage();
+	//	//Serial.write(98);
+	//	break;
+	//}
+	//case 2:
+	//{
+	//	SlaveAktivListe = 0;
+	//	break;
+	//}
 	case 9:
 	{
 		/* Wire.requestFrom(3, 10);    // request 6 bytes from slave device #2
@@ -297,7 +300,8 @@ void BefehlsAusfuerung(byte Befehl[5])
 
 		break;
 	}
-	case 19: {
+	case 19: 
+	{
 		RMAlleSenden = true;
 		break;
 	}
