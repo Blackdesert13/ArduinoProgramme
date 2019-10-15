@@ -70,7 +70,7 @@ const byte ArdNr = 1;
 #define ZeitAbfrage(Zeit) (millis() > (unsigned long)Zeit)
 
 struct Haltestelle;
-typedef void(*myFunctionPointer) (Haltestelle &haltestelle);
+typedef void(*funcPtr_Haltestelle) (Haltestelle &haltestelle);
 
 void StandardAbfahrtsbedingung(Haltestelle &h);
 
@@ -91,8 +91,7 @@ int halteZeit = 1000;
 unsigned long debugZeit = 0;
 int zustand = 0;
 
-struct Ausgang
-{
+struct Ausgang {
 	unsigned long schaltZeit = 0;
 	int einschaltVerzoegerung = 0;
 	int ausschaltVerzoegerung = 0;
@@ -114,8 +113,12 @@ Ausgang ausg[ausgSo];
 //};
 //ServoAusgang sAusg[sAusgSo];
 
-struct Haltestelle
-{
+struct Schaltbefehl {
+	byte Ausgang;
+	bool Zustand;
+};
+
+struct Haltestelle {
 	bool belegt = false;//Anwesendheit
 	bool blockiert = false;
 	byte rkEinfahrt1 = 255;// die Array-Nummer des ReedKontaktes im PGM
@@ -136,21 +139,23 @@ struct Haltestelle
 	//so wird sicher gestellt das das richtige Gleis als frei geschalten wird
 	bool ausfahrtGleisCheck = false;
 	byte autoStopServo = 255;
-	byte gleisAusgang = 255;
 
 	unsigned long gleisSchaltzeit;
 	unsigned long abfahrtsZeit = 0;
 	unsigned int warteZeit = 10000;
 	bool abfahrtsZeitErreicht = false;
 	bool abfahren = false;
-	myFunctionPointer AbfahrtsBedingung = StandardAbfahrtsbedingung;
+	funcPtr_Haltestelle AbfahrtsBedingung = StandardAbfahrtsbedingung;
+	funcPtr_Haltestelle EinAusfahrtsCheck = HsEinAusfahrtsCheck;
 
 	int abfahrtsVerzoegerung = 0;//wenn Zeit zum Stellen von Weichen benötigt wird
 	bool abfahrtsVerzoegerungAktiv = false;//ist true wenn die AbfahrtsVerzögerung aktiv ist
-
-	byte weicheAusfahrt = 255;//Array-Nr. des Ausgangs
-	bool weichenStellungAusfahrt;
-	byte weicheAlternativesZiel = 255;//Array-Nr. des Ausgangs
+	
+	byte gleisAusgang = 255;
+	byte anzSchaltbefehle = 0;
+	Schaltbefehl * Schaltbefehle = NULL;
+	byte anzSchaltbefehleAlternativesZiel = 0;
+	Schaltbefehl * SchaltbefehleAlternativesZiel = NULL;
 };
 byte hsAnzeige = 255;
 
@@ -181,8 +186,37 @@ byte sendeArray[5];
 byte outPinStart[6];
 
 
-void StandardAbfahrtsbedingung(Haltestelle &h) {
+void HsEinAusfahrtsCheck(Haltestelle &h) {
+	//Ausfahrt, gibt die Haltestelle wieder wieder frei beim passieren der Ausfahrts-Reed-Kontakte
+	if ((EingAbfrageHLFlanke(h.rkAusfahrt1)) || (EingAbfrageHLFlanke(h.rkAusfahrt2))) {
+		bool schalten = true;
+		if (h.ausfahrtGleisCheck) {
+			if (!ausg[h.gleisAusgang].stellung) { 
+				schalten = false; 
+			}
+		}
+		if (schalten) {
+			AusgSchalten(h.gleisAusgang, false);
+			h.belegt = false;
+			h.blockiert = false;
+			h.abfahrtsZeit = 0;
+			h.alternativesZiel = false;
+		}
+	}
+	
+	//Einfahrt
+	if ((h.rkEinfahrt1 != 255) && eing[h.rkEinfahrt1].stellung) {
+		AusgSchalten(h.gleisAusgang, false);
+		h.belegt = true;
+		h.blockiert = false;
+		h.abfahrtsZeit = millis() + h.warteZeit;
+		/*if (sAusgSo > hs[i].autoStopServo) {
+			ServoSchalten(hs[i].autoStopServo, true);
+		}*/
+	}
+}
 
+void StandardAbfahrtsbedingung(Haltestelle &h) {
 	h.abfahren = false;
 	byte zHS = h.alternativesZiel ? h.zielHS2 : h.zielHS1;// lokale Variable für Ziel-Haltestelle
 	if (zHS >= hsSo) {
@@ -193,19 +227,14 @@ void StandardAbfahrtsbedingung(Haltestelle &h) {
 	if (hs[zHS].belegt || hs[zHS].blockiert) {
 		return;
 	}
-
-	if (h.streckeAusfahrt < skSo && sk[h.streckeAusfahrt].belegt)
-	{//prüft ob eine ew. Strecke frei ist
-		//Serial.write(66);
-		//if (h.abfahren) {
-		//	Serial.write(h.rkAusfahrt1);
-		//}
-		//Serial.write(66);
+	
+	//prüft ob eine ew. Strecke frei ist
+	if (h.streckeAusfahrt < skSo && sk[h.streckeAusfahrt].belegt) {
 		return;
 	}
 
-	if (h.nachbarHS < hsSo && hs[h.nachbarHS].abfahrtsZeitErreicht)
-	{// prüft ew. NachbarHaltestellen auf Vorrang
+	// prüft ew. NachbarHaltestellen auf Vorrang
+	if (h.nachbarHS < hsSo && hs[h.nachbarHS].abfahrtsZeitErreicht) {
 		if (hs[h.nachbarHS].abfahrtsZeit >= h.abfahrtsZeit) {
 			return;
 		}
@@ -213,8 +242,7 @@ void StandardAbfahrtsbedingung(Haltestelle &h) {
 	h.abfahren = true;
 }
 
-void setup()
-{
+void setup() {
 	Serial.begin(9600);
 	//Ausgänge
 	outPinStart[0] = 30;
@@ -223,16 +251,14 @@ void setup()
 	delay(1000);
 }
 
-void loop()
-{
+void loop() {
 	USBAnzeige();
 	//USBAnzeigeSK();
 	AnlagenCheck();
 	//  delay(5);
 }
 
-void AnlagenCheck()
-{
+void AnlagenCheck() {
 	EingangsCheck();//prüft alle Eingänge
 	HaltestellenCheck();
 	// USBAnzeigeHS();
@@ -247,11 +273,9 @@ void USBAnzeigeSK() {
 	Serial.write(sk[0].belegt);
 }
 
-void USBAnzeige()
-{
+void USBAnzeige() {
 	USBEmpfang();
-	if (ZeitAbfrage(zeitUSB))
-	{
+	if (ZeitAbfrage(zeitUSB)) {
 		//USBAusgangsZustand();
 		USBEingangsZustand();
 		USBHaltestellenZustand();
@@ -259,62 +283,38 @@ void USBAnzeige()
 	}
 }
 
-void USBEmpfang()
-{
-	while (Serial.available()>0)
-	{
+void USBEmpfang() {
+	while (Serial.available()>0) {
 		byte daten = 0;
 		daten = Serial.read();
-		if (USBEingangsByteZaehler < 5)
-		{
+		if (USBEingangsByteZaehler < 5) {
 			USBEingang[USBEingangsByteZaehler] = daten;
-			//     Serial.write(USBBefehlEingang[USBDatenEingangByteZahler]);
 		}
-		else//EingangsBytes schieben
-		{
-			//Serial.write(222);
+		else {
 			USBEingang[0] = USBEingang[1];
 			USBEingang[1] = USBEingang[2];
 			USBEingang[2] = USBEingang[3];
 			USBEingang[3] = USBEingang[4];
-			USBEingang[4] = daten;//Serial.read();
-								  //Serial.write(USBEingang,5);
+			USBEingang[4] = daten;
 		}
-		//Serial.write(USBEingangsByteZaehler);
-		//Serial.write(USBEingang,5);
+		
 		USBEingangsByteZaehler++;
-		if (USBEingangsByteZaehler>4)
-		{
-			if (BefehlsPruefung(USBEingang))
-			{// BefehlsAusfuerung
+		if (USBEingangsByteZaehler>4) {
+			if (BefehlsPruefung(USBEingang)) {// BefehlsAusfuerung
 				BefehlsAusfuehrung(USBEingang);
 				USBEingangsByteZaehler = 0;
-				//Serial.write(USBEingang,5);
-				// Serial.write(99);
-				// Serial.write(USBEingangsByteZaehler);
 			}
-			else
-			{
-				// Serial.write(98);
-				// Serial.write(USBEingangsByteZaehler);
-			}
-			// Serial.write(USBEingang,5);
-			// Serial.write(USBEingangsByteZaehler);
-			//USBEingangsByteZaehler = 0;
 		}
 
 	}
 }
 
-bool BefehlsPruefung(byte Befehl[5])
-{//geprüft  
+bool BefehlsPruefung(byte Befehl[5]) {
 	byte summe = Befehl[0] + Befehl[1] + Befehl[2] + Befehl[3];
-	if (summe == Befehl[4])
-	{   //Serial.write(199);
+	if (summe == Befehl[4]) {
 		return true;
 	}
-	else
-	{    //Serial.write(198);
+	else {
 		return false;
 	}
 }
@@ -608,41 +608,10 @@ void HaltestellenCheck()
 	}
 	for (int i = 0; i < hsSo; i++)
 	{ //alternative Linie
-		if (hs[i].rkAlternativesZiel < eingSo)
-		{
+		if (hs[i].rkAlternativesZiel < eingSo){
 			if (eing[hs[i].rkAlternativesZiel].stellung) { hs[i].alternativesZiel = true; }
 		}
-		//Ausfahrt, gibt die Haltestelle wieder wieder frei beim passieren der Ausfahrts-Reed-Kontakte
-		if ((EingAbfrageHLFlanke(hs[i].rkAusfahrt1)) || (EingAbfrageHLFlanke(hs[i].rkAusfahrt2)))
-		{
-			bool schalten = true;
-			if (hs[i].ausfahrtGleisCheck)
-			{
-				// byte ga = hs[i].gleisAusgang;
-				if (!ausg[hs[i].gleisAusgang].stellung) { schalten = false; }
-			}
-			if (schalten)
-			{
-				AusgSchalten(hs[i].gleisAusgang, false);
-				hs[i].belegt = false;
-				hs[i].blockiert = false;
-				hs[i].abfahrtsZeit = 0;
-				hs[i].alternativesZiel = false;
-			}
-		}
-		//Einfahrt
-		if ((hs[i].rkEinfahrt1 != 255) && eing[hs[i].rkEinfahrt1].stellung)
-			//if(EingAbfrageHLFlanke(hs[i].rkEinfahrt1))
-		{
-			AusgSchalten(hs[i].gleisAusgang, false);
-			hs[i].belegt = true;
-			hs[i].blockiert = false;
-			hs[i].abfahrtsZeit = millis() + hs[i].warteZeit;
-			/*if (sAusgSo > hs[i].autoStopServo)
-			{
-				ServoSchalten(hs[i].autoStopServo, true);
-			}*/
-		}
+		hs[i].EinAusfahrtsCheck(hs[i]);
 	}
 
 	for (int i = 0; i < hsSo; i++)
@@ -653,7 +622,6 @@ void HaltestellenCheck()
 			if (!hs[i].abfahrtsZeitErreicht) {
 				hs[i].abfahrtsZeitErreicht = ZeitAbfrage(hs[i].abfahrtsZeit);
 			}
-
 		}
 	}
 
@@ -686,22 +654,15 @@ void HaltestellenAbfahrt()
 				//}
 				////ServoSchalten//sAusg
 			}
-			//AusfahrtsWeiche
-			if (hs[i].weicheAusfahrt < ausgSo)
-			{
-				AusgSchalten(hs[i].weicheAusfahrt, hs[i].weichenStellungAusfahrt);
-			}
 			//Ziel blockieren
 			byte Ziel = hs[i].zielHS1;
 			if (hs[i].rkAlternativesZiel < eingSo)
 			{//alternativesZiel
-				byte weiche = hs[i].weicheAlternativesZiel;
 				if (hs[i].alternativesZiel)
 				{
 					Ziel = hs[i].zielHS2;
-					if (weiche < ausgSo) { AusgSchalten(weiche, true); }
+					
 				}
-				else { if (weiche < ausgSo) { AusgSchalten(weiche, false); } }
 			}
 			hs[Ziel].blockiert = true;
 			hs[i].abfahren = false;
