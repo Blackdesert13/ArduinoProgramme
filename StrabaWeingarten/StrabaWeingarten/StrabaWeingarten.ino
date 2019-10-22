@@ -33,6 +33,40 @@
 #define StreckeTeil2 3
 #define StreckeBahnhof 4
 
+#define ausg_1152_2152_3152_FSS 0
+#define ausg_3156_4156_FSS 1
+#define ausg_5156_6156_FSS 2
+#define ausg_5152_6151_FSS 3
+#define ausg_6154_FSS 4
+#define ausg_6162_7151_7152_FSS 5
+#define ausg_7161_7164_FSS 6
+#define ausg_1154_FSS 7
+#define ausg_3154_FSS 8
+#define ausg_3155_FSS 9
+#define ausg_6160_FSS 10
+#define ausg_6161_FSS 11
+#define ausg_7154_FSS 12
+#define ausg_7158_FSS 13
+#define ausg_7172_FSS 14
+#define ausg_7171_FSS 15
+#define ausg_1151 16
+#define ausg_3151 17
+#define ausg_3152 18
+#define ausg_5154 19
+#define ausg_5155 20
+#define ausg_6152 21
+#define ausg_6155 22
+#define ausg_6158 23
+#define ausg_7153 24
+#define ausg_7157 25
+#define ausg_7160 26
+#define ausg_7166 27
+#define ausg_7167 28
+#define ausg_7168 29
+#define ausg_7169 30
+#define ausg_7163 31
+#define ausg_5251_We 32
+#define ausg_6252_We 33
 
 #define rk_HS1HS9 23
 #define rk_HS9HS10 22
@@ -60,12 +94,14 @@
 #define rk_BahnhofHS13 7
 
 #include <Servo.h>
+#include <Wire.h>
 const byte ArdNr = 1;
 #define eingSo 24 // Anzahl Eingänge
-#define ausgSo 16 // Anzahl Ausgänge
+#define ausgSo 34 // Anzahl Ausgänge
 #define sAusgSo 0 // Anzahl ServoAusgänge
 #define hsSo 16 //   Anzahl Haltestellen
 #define skSo 5 // Anzahl Strecken
+#define platSo 3 //Anzahl Platinen
 
 #define ZeitAbfrage(Zeit) (millis() > (unsigned long)Zeit)
 
@@ -73,6 +109,9 @@ struct Haltestelle;
 typedef void(*funcPtr_Haltestelle) (Haltestelle &haltestelle);
 
 void StandardAbfahrtsbedingung(Haltestelle &h);
+void AbfahrtsbedingungHS8(Haltestelle &h);
+void HsEinAusfahrtsCheck(Haltestelle &h);
+void Hs1EinAusfahrtsCheck(Haltestelle &h);
 
 
 struct Eingang //für alle Arten von Schaltern, Reedkontakten, Lichtschranken 
@@ -91,13 +130,21 @@ int halteZeit = 1000;
 unsigned long debugZeit = 0;
 int zustand = 0;
 
+struct Platine {
+	unsigned short Ausgaenge;
+	byte Arduino;
+	byte Befehl;
+	bool senden;
+};
+Platine platinen[platSo];
+
 struct Ausgang {
 	unsigned long schaltZeit = 0;
 	int einschaltVerzoegerung = 0;
 	int ausschaltVerzoegerung = 0;
+	byte platine;
 	byte ausgang = 255;
-	bool invertiert = false;
-	bool stellung = false;//HIGH-aktiv
+	//byte stellung;
 };
 Ausgang ausg[ausgSo];
 
@@ -183,19 +230,57 @@ unsigned long zeitUSB = 0;
 int intervallUSB = 500;
 byte sendeArray[5];
 //Ausgänge
-byte outPinStart[6];
 
+void Hs1EinAusfahrtsCheck(Haltestelle &h) {
+	if (h.belegt && h.abfahrtsZeit < millis()) {
+		//Ausfahrt, gibt die Haltestelle wieder wieder frei beim passieren der Ausfahrts-Reed-Kontakte
+		if ((EingAbfrageHLFlanke(h.rkAusfahrt1)) || (EingAbfrageHLFlanke(h.rkAusfahrt2))) {
+			bool schalten = true;
+			if (h.ausfahrtGleisCheck) {
+				Ausgang a = ausg[h.gleisAusgang];
+				if (!(bitRead(platinen[a.platine].Ausgaenge,a.ausgang))) {
+					schalten = false;
+				}
+			}
+			if (schalten) {
+				AusgSchalten(h.gleisAusgang, false);
+				h.belegt = false;
+				h.blockiert = false;
+				h.abfahrtsZeit = 0;
+				h.alternativesZiel = false;
+			}
+		}
+	}
+	else {
+		//Einfahrt
+		if (eing[rk_HS0HS1].stellung) {
+			AusgSchalten(h.gleisAusgang, false);
+			h.belegt = true;
+			h.blockiert = false;
+			h.abfahrtsZeit = millis() + h.warteZeit;
+		}
+		if (eing[rk_HS1vorn].stellung) {
+			AusgSchalten(h.gleisAusgang, false);
+			h.belegt = true;
+			h.blockiert = false;
+			h.abfahrtsZeit = millis() + h.warteZeit;
+			h.alternativesZiel = true;
+		}
+	}
+}
 
 void HsEinAusfahrtsCheck(Haltestelle &h) {
 	//Ausfahrt, gibt die Haltestelle wieder wieder frei beim passieren der Ausfahrts-Reed-Kontakte
 	if ((EingAbfrageHLFlanke(h.rkAusfahrt1)) || (EingAbfrageHLFlanke(h.rkAusfahrt2))) {
 		bool schalten = true;
 		if (h.ausfahrtGleisCheck) {
-			if (!ausg[h.gleisAusgang].stellung) { 
+			Ausgang a = ausg[h.gleisAusgang];
+			if (!(bitRead(platinen[a.platine].Ausgaenge, a.ausgang))) {
 				schalten = false; 
 			}
 		}
 		if (schalten) {
+			Serial.write(61);
 			AusgSchalten(h.gleisAusgang, false);
 			h.belegt = false;
 			h.blockiert = false;
@@ -206,6 +291,9 @@ void HsEinAusfahrtsCheck(Haltestelle &h) {
 	
 	//Einfahrt
 	if ((h.rkEinfahrt1 != 255) && eing[h.rkEinfahrt1].stellung) {
+		if (!h.belegt) {
+			Serial.write(62);
+		}
 		AusgSchalten(h.gleisAusgang, false);
 		h.belegt = true;
 		h.blockiert = false;
@@ -239,14 +327,23 @@ void StandardAbfahrtsbedingung(Haltestelle &h) {
 			return;
 		}
 	}
+	Serial.write(60);
+	Serial.write(h.gleisAusgang);
 	h.abfahren = true;
+}
+
+void AbfahrtsbedingungHS8(Haltestelle &h) {
+	StandardAbfahrtsbedingung(h);
+	if (h.abfahren) {
+		if (hs[HS9].belegt || hs[HS9].blockiert) {
+			h.abfahren = false;
+			h.abfahrtsZeit = hs[HS0].abfahrtsZeit + 1;
+		}
+	}
 }
 
 void setup() {
 	Serial.begin(9600);
-	//Ausgänge
-	outPinStart[0] = 30;
-	outPinStart[1] = 38;
 	Definition();
 	delay(1000);
 }
@@ -256,6 +353,35 @@ void loop() {
 	//USBAnzeigeSK();
 	AnlagenCheck();
 	//  delay(5);
+	for (int i = 0; i < platSo; i++) {
+		Platine plat = platinen[i];
+		if (plat.senden) {
+			if (platinen[i].Arduino == ArdNr) {
+				if (platinen[i].Befehl == 41) {
+					ByteToRelais(lowByte(platinen[i].Ausgaenge), 22);
+					ByteToRelais(highByte(platinen[i].Ausgaenge), 30);
+				}
+				else if (platinen[i].Befehl == 42) {
+					Serial.write(99);
+
+					ByteToRelais(lowByte(platinen[i].Ausgaenge), 38);
+					ByteToRelais(highByte(platinen[i].Ausgaenge), 46);
+				}
+				else if (platinen[i].Befehl == 40) {
+					ByteToRelais(lowByte(platinen[i].Ausgaenge), 2);
+					ByteToRelais(highByte(platinen[i].Ausgaenge), 10);
+				}
+			}
+			else {
+				byte befehl[5];
+				befehl[0] = platinen[i].Arduino;
+				befehl[1] = platinen[i].Befehl;
+				befehl[2] = lowByte(platinen[i].Ausgaenge);
+				befehl[3] = highByte(platinen[i].Ausgaenge);
+				BefehlAnSlave(befehl);
+			}
+		}
+	}
 }
 
 void AnlagenCheck() {
@@ -263,20 +389,14 @@ void AnlagenCheck() {
 	HaltestellenCheck();
 	// USBAnzeigeHS();
 	HaltestellenAbfahrt();
-	//AusgSchaltVerzoegerungsCheck();
 	ResetEingangHLFlanke();
 }
 
-void USBAnzeigeSK() {
-	Serial.write(99);
-	Serial.write(eing[12].stellung);
-	Serial.write(sk[0].belegt);
-}
 
 void USBAnzeige() {
 	USBEmpfang();
 	if (ZeitAbfrage(zeitUSB)) {
-		//USBAusgangsZustand();
+		USBAusgangsZustand();
 		USBEingangsZustand();
 		USBHaltestellenZustand();
 		zeitUSB = millis() + intervallUSB;
@@ -379,12 +499,34 @@ void USBAnzeigeHS()
 
 void USBAusgangsZustand()
 {//sendet den Zustand der Relais-Ausgänge
-	byte befehl[5];
-	//bool st ;
-	for (int i = 0; i<8; i++) { bitWrite(befehl[2], i, ausg[i].stellung); }
-	for (int i = 0; i<8; i++) { bitWrite(befehl[3], i, ausg[i + 8].stellung); }
-	befehl[1] = 40;
-	BefehlAnPC(befehl);
+	//byte befehl[5];
+	//for (int i = 0; i<8; i++) { bitWrite(befehl[2], i, ausg[i].stellung); }
+	//for (int i = 0; i<8; i++) { bitWrite(befehl[3], i, ausg[i + 8].stellung); }
+	//befehl[1] = 41;
+	//BefehlAnPC(befehl);
+
+	//befehl[2] = 0;
+	//befehl[3] = 0;
+	//for (int i = 0; i < 8; i++) { bitWrite(befehl[2], i, ausg[i + 16].stellung); }
+	//for (int i = 0; i < 8; i++) { bitWrite(befehl[3], i, ausg[i + 24].stellung); }
+	//befehl[1] = 42;
+	//BefehlAnPC(befehl);
+
+	//befehl[2] = 0;
+	//befehl[3] = 0;
+	//for (int i = 0; i < 2; i++) { bitWrite(befehl[2], i, ausg[i + 32].stellung); }
+	////for (int i = 0; i < 8; i++) { bitWrite(befehl[3], i, ausg[i + 24].stellung); }
+	//befehl[1] = 40;
+	//BefehlAnPC(befehl
+	for (int i = 0; i < platSo; i++) {
+		byte befehl[5];
+		befehl[0] = platinen[i].Arduino;
+		befehl[1] = platinen[i].Befehl;
+		befehl[2] = lowByte(platinen[i].Ausgaenge);
+		befehl[3] = highByte(platinen[i].Ausgaenge);
+		befehl[4] = (byte)(befehl[0] + befehl[1] + befehl[2] + befehl[3]);
+		Serial.write(befehl, 5);
+	}
 }
 
 void USBEingangsZustand()
@@ -419,7 +561,7 @@ void USBHaltestellenZustand()
 	//		zustand++;
 	//	}
 	//}
-	
+
 	bool zeitBit = false;
 	for (int i = 0; i<hsSo; i++)
 	{
@@ -483,6 +625,12 @@ void BefehlAnPC(byte Befehl[5])
 	Serial.write(Befehl, 5);
 }
 
+void BefehlAnSlave(byte Befehl[5])
+{ //sendet einen Befehl an den PC, Kontrollbyte und Arduino-Nummer werden automatisch ergänzt    
+	Befehl[0] = ArdNr;
+	Befehl[4] = Befehl[0] + Befehl[1] + Befehl[2] + Befehl[3];
+	Wire.write(Befehl, 5);
+}
 
 void BefehlsAusfuehrung(byte Befehl[5])
 {
@@ -504,31 +652,33 @@ void BefehlsAusfuehrung(byte Befehl[5])
 	{
 		break;
 	}
-
-
 	case 40:
-	{//PermanentOutput 16Bit auf Adresse0
-	 //Serial.write(Befehl,5);
-	 // ByteToRelais(Befehl[3],outPinStart[0]);
-	 // ByteToRelais(Befehl[2],outPinStart[1]);
-	 //Serial.write(Befehl,5);
-	 //Serial.write(77);
-	 //void ByteToAusgang(byte datenByte, int startNr)
-		ByteToAusgang(Befehl[2], 0);
-		ByteToAusgang(Befehl[3], 8);
+	{   //PermanentOutput 16Bit auf Adresse0
+		for (int i = 0; i < platSo; i++) {
+			if (platinen[i].Arduino == Befehl[0] && platinen[i].Befehl == 40) {
+				platinen[i].Ausgaenge = ((unsigned short)(Befehl[3] << 8)) + Befehl[2];
+				platinen[i].senden = true;
+			}
+		}
 		break;
 	}case 41:
 	{  //PermanentOutput 16Bit auf Adresse1
-	   // ByteToRelais(Befehl[3],outPinStart[2]);
-	   // ByteToRelais(Befehl[2],outPinStart[3]);
-	   // ByteToEingang(Befehl[2], 16);
-	   //  ByteToEingang(Befehl[3], 24);
+		for (int i = 0; i < platSo; i++) {
+			if (platinen[i].Arduino == Befehl[0] && platinen[i].Befehl == 41) {
+				platinen[i].Ausgaenge = ((unsigned short)(Befehl[3] << 8)) + Befehl[2];
+				platinen[i].senden = true;
+			}
+		}
 		break;
 	}
 	case 42:
 	{//PermanentOutput 16Bit auf Adresse2
-	 // ByteToRelais(Befehl[3],outPinStart[4]);
-	 //ByteToRelais(Befehl[2],outPinStart[5]);
+		for (int i = 0; i < platSo; i++) {
+			if (platinen[i].Arduino == Befehl[0] && platinen[i].Befehl == 42) {
+				platinen[i].Ausgaenge = ((unsigned short)(Befehl[3] << 8)) + Befehl[2];
+				platinen[i].senden = true;
+			}
+		}
 		break;
 	}
 	}
@@ -537,7 +687,12 @@ void BefehlsAusfuehrung(byte Befehl[5])
 void ByteToRelais(byte datenByte, int startPin)
 { //von MoBS_Master
 	datenByte = ~datenByte;//datenByte muß invertiert werden weil die Relaisplatinen low-aktiv sind!
-	for (int i = 0; i<8; i++) { digitalWrite(i + startPin, bitRead(datenByte, i)); }
+	for (int i = 0; i<8; i++) { 
+		digitalWrite(i + startPin, bitRead(datenByte, i)); 
+		if (i + startPin > 51) {
+			Serial.write(bitRead(datenByte, i));
+		}
+	}
 }
 
 void ByteToAusgang(byte datenByte, int startNr)
@@ -556,7 +711,9 @@ void ByteToAusgang(byte datenByte, int startNr)
 			stellung = bitRead(daten, i);
 			//delay(10);
 			//Serial.write(stellung);
-			if (stellung != ausg[Nr].stellung)
+			Ausgang a = ausg[Nr];
+			bool ausgStellung = (bitRead(platinen[a.platine].Ausgaenge, a.ausgang)) != 0;
+			if (stellung != ausgStellung)
 			{
 				AusgSchalten(Nr, stellung);
 			}
@@ -578,9 +735,11 @@ void ByteToEingang(byte datenByte, int startNr)
 			stellung = bitRead(datenByte, i);
 			Nr = start + i;
 
-			if (stellung == ausg[Nr].stellung)
+			Ausgang a = ausg[Nr];
+			bool ausgStellung = (bitRead(platinen[a.platine].Ausgaenge, a.ausgang)) != 0;
+			if (stellung != ausgStellung)
 			{
-				//AusgSchalten(Nr,stellung);
+				//AusgSchalten(Nr, stellung);
 			}
 		}
 	}
@@ -642,6 +801,7 @@ void HaltestellenAbfahrt()
 			{
 				sk[hs[i].streckeAusfahrt].belegt = true;
 			}
+
 			if (hs[i].abfahrtsVerzoegerung > 0)
 			{
 				hs[i].abfahrtsZeit = millis() + hs[i].abfahrtsVerzoegerung;
@@ -656,16 +816,15 @@ void HaltestellenAbfahrt()
 			}
 			//Ziel blockieren
 			byte Ziel = hs[i].zielHS1;
-			if (hs[i].rkAlternativesZiel < eingSo)
-			{//alternativesZiel
-				if (hs[i].alternativesZiel)
-				{
-					Ziel = hs[i].zielHS2;
-					
-				}
+			if (hs[i].alternativesZiel) {
+				Ziel = hs[i].zielHS2;
 			}
+			
+			Serial.write(63);
 			hs[Ziel].blockiert = true;
 			hs[i].abfahren = false;
+			hs[i].abfahrtsZeitErreicht = false;
+			hs[i].abfahrtsZeit = 0;
 			if (hs[i].streckeAusfahrt < skSo) { sk[hs[i].streckeAusfahrt].belegt = true; }
 		}
 	}
@@ -677,76 +836,31 @@ void AusgSchalten(byte Nr, bool Stellung)
 	bool stellung = Stellung;
 	if (nr < ausgSo)
 	{// soll nur bei Veränderung geschalten werden 
-		if (stellung != ausg[nr].stellung)
+		Ausgang a = ausg[Nr];
+		bool ausgStellung = (bitRead(platinen[a.platine].Ausgaenge, a.ausgang)) != 0;
+		if (stellung != ausgStellung)
 		{
-
 			//ab hier die Schaltverzögerung		
-			if (ausg[nr].schaltZeit == 0)
-			{//es wird geprüft ob es Schaltverzögerung erfolgen soll
-				if (ausg[nr].stellung) {
-					if (ausg[nr].ausschaltVerzoegerung > 0) { ausg[nr].schaltZeit = millis() + ausg[nr].ausschaltVerzoegerung; }
-				}
-				else {
-					if (ausg[nr].einschaltVerzoegerung) { ausg[nr].schaltZeit = millis() + ausg[nr].einschaltVerzoegerung; }
-				}
-			}
+			//if (ausg[nr].schaltZeit == 0)
+			//{//es wird geprüft ob es Schaltverzögerung erfolgen soll
+			//	if (ausgStellung) {
+			//		if (ausg[nr].ausschaltVerzoegerung > 0) { ausg[nr].schaltZeit = millis() + ausg[nr].ausschaltVerzoegerung; }
+			//	}
+			//	else {
+			//		if (ausg[nr].einschaltVerzoegerung) { ausg[nr].schaltZeit = millis() + ausg[nr].einschaltVerzoegerung; }
+			//	}
+			//}
 			//wenn die Schaltverzögerung aktiv ist kann hier nicht geschalten werden
-			if (ausg[nr].schaltZeit == 0)
-			{
-				ausg[nr].stellung = stellung;
-				if (ausg[Nr].invertiert)
-				{
-					digitalWrite(ausg[nr].ausgang, ausg[nr].stellung);
-				}
-				else
-				{
-					digitalWrite(ausg[nr].ausgang, !ausg[nr].stellung);
-				}
-			}
+			//if (ausg[nr].schaltZeit == 0)
+			//{
+				//ausg[nr].stellung = stellung;
+			bitWrite(platinen[a.platine].Ausgaenge, a.ausgang, stellung);
+			platinen[a.platine].senden = true;
+			//}
 		}
 	}
 }
 
-void AusgSchaltenAlt(byte Nr, bool Stellung)
-{
-	int nr = Nr;
-	bool stellung = Stellung;
-	if (nr < ausgSo)
-	{// soll nur bei Veränderung geschalten werden 
-		if (stellung != ausg[nr].stellung)
-		{
-			ausg[nr].stellung = stellung;
-			//ab hier die Schaltverzögerung		
-			//bis hier die Schaltverzögerung		
-			if (ausg[Nr].invertiert)
-			{
-				digitalWrite(ausg[nr].ausgang, ausg[nr].stellung);
-			}
-			else
-			{
-				digitalWrite(ausg[nr].ausgang, !ausg[nr].stellung);
-			}
-			//Serial.write(nr);Serial.write(stellung+100); 
-		}
-	}
-}
-
-void AusgSchaltVerzoegerungsCheck()
-{
-	for (int i = 0; i < ausgSo; i++)
-	{
-		if (ausg[i].schaltZeit>0)
-		{
-			if (ZeitAbfrage(ausg[i].schaltZeit))
-			{
-				// AusgSchalten( i, !ausg[i].stellung);
-				ausg[i].stellung = !ausg[i].stellung;
-				digitalWrite(ausg[i].ausgang, ausg[i].stellung);
-				ausg[i].schaltZeit = 0;
-			}
-		}
-	}
-}
 
 bool EingAbfrageHLFlanke(byte Nr)
 {
@@ -889,122 +1003,148 @@ void Definition()
 		pinMode(eing[i].eingang, INPUT_PULLUP);
 	}
 
-	ausg[0].ausgang = 30; //5122x
-	ausg[1].ausgang = 31; //5212;Weiche
-	ausg[2].ausgang = 32; //5124
-	ausg[3].ausgang = 33; //5123x
-	ausg[4].ausgang = 34; //3126
-	ausg[5].ausgang = 35; //5125
-	ausg[6].ausgang = 36; //5124
-	ausg[7].ausgang = 37; //3125
-	ausg[8].ausgang = 38; //1151
-	ausg[9].ausgang = 39; //3127
-						  // ausg[9].einschaltVerzoegerung = 4000;
-	ausg[10].ausgang = 40;//3201;Weiche
-						  // ausg[10].invertiert = true;
-	ausg[11].ausgang = 41;//1152
-	ausg[12].ausgang = 42;//5211;Weiche
-	ausg[12].invertiert = true;
-	ausg[13].ausgang = 43;//3202;Weiche
-	ausg[14].ausgang = 44;//frei
-	ausg[15].ausgang = 45;//frei
-	for (int i = 0; i<eingSo; i++)
+	platinen[0].Arduino = ArdNr;
+	platinen[0].Befehl = 41;
+	platinen[0].senden = true;
+	platinen[1].Arduino = ArdNr;
+	platinen[1].Befehl = 42;
+	platinen[1].senden = true;
+	platinen[2].Arduino = 2;
+	platinen[2].Befehl = 41;
+	platinen[2].senden = true;
+
+	for (int i = 0; i < 32; i++){
+		ausg[i].ausgang = i%16;
+		ausg[i].platine = i / 16;
+	}
+	ausg[32].ausgang = 0;
+	ausg[32].platine = 2;
+	ausg[33].ausgang = 1;
+	ausg[33].platine = 2;
+
+	for (int i = 0; i<32; i++)
 	{
-		pinMode(ausg[i].ausgang, OUTPUT);
-		digitalWrite(ausg[i].ausgang, LOW);
-		//digitalWrite(ausgang[i].ausgang,HIGH);
-		delay(100);
-		digitalWrite(ausg[i].ausgang, HIGH);
-		//digitalWrite(ausgang[i].ausgang,LOW);
-		delay(10);
+		pinMode(22 + i, OUTPUT);
+		//digitalWrite(22 + i, LOW);
+		////digitalWrite(ausgang[i].ausgang,HIGH);
+		//delay(100);
+		//digitalWrite(22 + i, HIGH);
+		////digitalWrite(ausgang[i].ausgang,LOW);
+		//delay(10);
 	}
 
-	
 	hs[HS0].gleisAusgang = 0;
 	hs[HS0].rkEinfahrt1 = rk_HS11HS0;
 	hs[HS0].rkAusfahrt1 = rk_HS0HS1;
 	hs[HS0].zielHS1 = HS1;
 	hs[HS0].streckeAusfahrt = StreckeTeil7;
+	hs[HS0].gleisAusgang = ausg_7169;
 	
-	hs[HS1].gleisAusgang = 0;
+	hs[HS1].gleisAusgang = 1;
 	hs[HS1].rkEinfahrt1 = rk_HS0HS1;
 	hs[HS1].rkEinfahrt2 = rk_HS1vorn;
 	hs[HS1].rkAusfahrt1 = rk_HS1HS9;
 	hs[HS1].rkAusfahrt2 = rk_HS1vorn;
 	hs[HS1].zielHS1 = HS2;
+	hs[HS1].zielHS2 = HS9;
+	hs[HS1].EinAusfahrtsCheck = Hs1EinAusfahrtsCheck;
+	hs[HS1].gleisAusgang = ausg_7163;
 	
-	hs[HS2].gleisAusgang = 3; 
+	hs[HS2].gleisAusgang = 2; 
 	hs[HS2].rkEinfahrt1 = rk_EinHS2;
 	hs[HS2].rkAusfahrt1 = rk_AusHS2;
 	hs[HS2].zielHS1 = HS3;
 	hs[HS2].streckeAusfahrt = StreckeTeil6_7;
+	hs[HS2].gleisAusgang = ausg_7160;
 	
-	hs[HS3].gleisAusgang = 5;
+	hs[HS3].gleisAusgang = 3;
 	hs[HS3].rkEinfahrt1 = rk_EinHS3;
 	hs[HS3].rkAusfahrt1 = rk_AusHS3; 
 	hs[HS3].zielHS1 = HS4; 
 	hs[HS3].zielHS2 = HS12;
 	hs[HS3].streckeAusfahrt = StreckeTeil4_5_6;
+	hs[HS3].gleisAusgang = ausg_6155;
 
-	hs[HS4].gleisAusgang = 9; 
+	hs[HS4].gleisAusgang = 4; 
 	hs[HS4].rkEinfahrt1 = rk_EinHS4;
 	hs[HS4].rkAusfahrt1 = rk_AusHS4; 
 	hs[HS4].zielHS1 = HS5; 
 	hs[HS4].streckeAusfahrt = StreckeTeil2;
+	hs[HS4].gleisAusgang = ausg_3151;
 	 
-	hs[HS5].gleisAusgang = 11;
+	hs[HS5].gleisAusgang = 5;
 	hs[HS5].rkEinfahrt1 = rk_EinHS5;
 	hs[HS5].rkAusfahrt1 = rk_AusHS5;
 	hs[HS5].zielHS1 = HS6; 
 	hs[HS5].streckeAusfahrt = StreckeTeil2;
+	hs[HS5].gleisAusgang = ausg_1151;
 	
-	hs[HS6].gleisAusgang = 8; 
+	hs[HS6].gleisAusgang = 6; 
 	hs[HS6].rkEinfahrt1 = rk_EinHS6;
 	hs[HS6].rkAusfahrt1 = rk_AusHS6;
 	hs[HS6].zielHS1 = HS7;
 	hs[HS6].streckeAusfahrt = StreckeTeil4_5_6;
+	hs[HS6].gleisAusgang = ausg_3152;
 					   
 	hs[HS7].gleisAusgang = 7;
 	hs[HS7].rkEinfahrt1 = rk_EinHS7;
 	hs[HS7].rkAusfahrt1 = rk_AusHS7; 
 	hs[HS7].zielHS1 = HS8;
 	hs[HS7].streckeAusfahrt = StreckeTeil6_7;
+	hs[HS7].gleisAusgang = ausg_6158;
 	
-	hs[HS8].gleisAusgang = 4; 
+	hs[HS8].gleisAusgang = 8; 
 	hs[HS8].rkEinfahrt1 = rk_EinHS8;
 	hs[HS8].rkAusfahrt1 = rk_AusHS8; 
 	hs[HS8].zielHS1 = HS1;
 	hs[HS8].streckeAusfahrt = StreckeTeil7;
+	hs[HS8].nachbarHS = HS0;
+	hs[HS8].AbfahrtsBedingung = AbfahrtsbedingungHS8;
+	hs[HS8].gleisAusgang = ausg_7157;
 	
 	hs[HS9].warteZeit = 500;
-	hs[HS9].gleisAusgang = 13;
+	hs[HS9].gleisAusgang = 9;
 	hs[HS9].rkEinfahrt1 = rk_HS1HS9;
 	hs[HS9].rkAusfahrt1 = rk_HS9HS10; 
 	hs[HS9].zielHS1 = HS10;
+	hs[HS9].gleisAusgang = ausg_7166;
 
 	hs[HS10].warteZeit = 500;
-	hs[HS10].gleisAusgang = 13;
+	hs[HS10].gleisAusgang = 10;
 	hs[HS10].rkEinfahrt1 = rk_HS9HS10;
 	hs[HS10].rkAusfahrt1 = rk_HS10HS11;
 	hs[HS10].zielHS1 = HS11;
+	hs[HS10].gleisAusgang = ausg_7167;
 
 	hs[HS11].warteZeit = 500;
-	hs[HS11].gleisAusgang = 13;
+	hs[HS11].gleisAusgang = 11;
 	hs[HS11].rkEinfahrt1 = rk_HS10HS11;
 	hs[HS11].rkAusfahrt1 = rk_HS11HS0;
 	hs[HS11].zielHS1 = HS0;
+	hs[HS11].gleisAusgang = ausg_7168;
 
-	hs[HS13].gleisAusgang = 7;
+	hs[HS12].gleisAusgang = 13;
+	hs[HS12].rkEinfahrt1 = rk_HS12ZumBahnhof;
+	hs[HS12].rkEinfahrt2 = rk_HS12ZurStadt;
+	hs[HS12].rkAusfahrt1 = rk_HS12ZumBahnhof;
+	hs[HS12].rkAusfahrt2 = rk_HS12ZurStadt;
+	hs[HS12].zielHS1 = HS13;
+	hs[HS12].zielHS2 = HS7;
+	hs[HS12].gleisAusgang = ausg_6152;
+
+	hs[HS13].gleisAusgang = 13;
 	hs[HS13].rkEinfahrt1 = rk_BahnhofHS13;
 	hs[HS13].rkAusfahrt1 = rk_BahnhofHS13;
 	hs[HS13].zielHS1 = HS12;
 	hs[HS13].streckeAusfahrt = StreckeBahnhof;
+	hs[HS13].gleisAusgang = ausg_5154;
 
-	hs[HS14].gleisAusgang = 4;
+	hs[HS14].gleisAusgang = 14;
 	hs[HS14].rkEinfahrt1 = rk_BahnhofHS14;
 	hs[HS14].rkAusfahrt1 = rk_BahnhofHS14;
 	hs[HS14].zielHS1 = HS12;
 	hs[HS14].streckeAusfahrt = StreckeBahnhof;
+	hs[HS14].gleisAusgang = ausg_5155;
 
 	sk[StreckeTeil7].anzahlRkAusfahrt = 2;
 	sk[StreckeTeil7].rkAusfahrt = new byte[2]{ rk_EinHS2, rk_HS1HS9 };
