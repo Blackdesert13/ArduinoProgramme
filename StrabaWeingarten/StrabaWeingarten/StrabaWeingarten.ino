@@ -33,38 +33,38 @@
 #define StreckeTeil2 3
 #define StreckeBahnhof 4
 
-#define ausg_1152_2152_3152_FSS 0
-#define ausg_3156_4156_FSS 1
-#define ausg_5156_6156_FSS 2
-#define ausg_5152_6151_FSS 3
-#define ausg_6154_FSS 4
-#define ausg_6162_7151_7152_FSS 5
-#define ausg_7161_7164_FSS 6
-#define ausg_1154_FSS 7
-#define ausg_3154_FSS 8
-#define ausg_3155_FSS 9
-#define ausg_6160_FSS 10
-#define ausg_6161_FSS 11
-#define ausg_7154_FSS 12
-#define ausg_7158_FSS 13
-#define ausg_7172_FSS 14
-#define ausg_7171_FSS 15
-#define ausg_1151 16
-#define ausg_3151 17
-#define ausg_3152 18
-#define ausg_5154 19
-#define ausg_5155 20
-#define ausg_6152 21
-#define ausg_6155 22
-#define ausg_6158 23
-#define ausg_7153 24
-#define ausg_7157 25
-#define ausg_7160 26
-#define ausg_7166 27
-#define ausg_7167 28
-#define ausg_7168 29
-#define ausg_7169 30
-#define ausg_7163 31
+#define ausg_1152_2152_3152_FSS 1
+#define ausg_3156_4156_FSS 0
+#define ausg_5156_6156_FSS 3
+#define ausg_5152_6151_FSS 2
+#define ausg_6154_FSS 5
+#define ausg_6162_7151_7152_FSS 4
+#define ausg_7161_7164_FSS 7
+#define ausg_1154_FSS 6
+#define ausg_3154_FSS 9
+#define ausg_3155_FSS 8
+#define ausg_6160_FSS 11
+#define ausg_6161_FSS 10
+#define ausg_7154_FSS 13
+#define ausg_7158_FSS 12
+#define ausg_7172_FSS 15
+#define ausg_7171_FSS 14
+#define ausg_1151 17
+#define ausg_3151 16
+#define ausg_3152 19
+#define ausg_5154 18
+#define ausg_5155 21
+#define ausg_6152 20
+#define ausg_6155 23
+#define ausg_6158 22
+#define ausg_7153 25
+#define ausg_7157 24
+#define ausg_7160 27
+#define ausg_7166 26
+#define ausg_7167 29
+#define ausg_7168 28
+#define ausg_7169 31
+#define ausg_7163 30
 #define ausg_5251_We 32
 #define ausg_6252_We 33
 
@@ -802,6 +802,23 @@ void HaltestellenAbfahrt()
 				sk[hs[i].streckeAusfahrt].belegt = true;
 			}
 
+			if (hs[i].alternativesZiel) {
+				for (int j = 0; j < hs[i].anzSchaltbefehleAlternativesZiel; j++) {
+					AusgSchalten(
+						hs[i].SchaltbefehleAlternativesZiel[j].Ausgang, 
+						hs[i].SchaltbefehleAlternativesZiel[j].Zustand
+					);
+				}
+			}
+			else {
+				for (int j = 0; j < hs[i].anzSchaltbefehle; j++) {
+					AusgSchalten(
+						hs[i].Schaltbefehle[j].Ausgang,
+						hs[i].Schaltbefehle[j].Zustand
+					);
+				}
+			}
+
 			if (hs[i].abfahrtsVerzoegerung > 0)
 			{
 				hs[i].abfahrtsZeit = millis() + hs[i].abfahrtsVerzoegerung;
@@ -819,7 +836,7 @@ void HaltestellenAbfahrt()
 			if (hs[i].alternativesZiel) {
 				Ziel = hs[i].zielHS2;
 			}
-			
+
 			Serial.write(63);
 			hs[Ziel].blockiert = true;
 			hs[i].abfahren = false;
@@ -1015,7 +1032,13 @@ void Definition()
 
 	for (int i = 0; i < 32; i++){
 		ausg[i].ausgang = i%16;
-		ausg[i].platine = i / 16;
+		if (i < 16) {
+			ausg[i].platine = 0;
+		}
+		else {
+			ausg[i].platine = 1;
+		}
+		
 	}
 	ausg[32].ausgang = 0;
 	ausg[32].platine = 2;
@@ -1039,6 +1062,8 @@ void Definition()
 	hs[HS0].zielHS1 = HS1;
 	hs[HS0].streckeAusfahrt = StreckeTeil7;
 	hs[HS0].gleisAusgang = ausg_7169;
+	hs[HS0].anzSchaltbefehle = 2;
+	hs[HS0].Schaltbefehle = new Schaltbefehl[2]{ {ausg_7171_FSS,true},{ ausg_7161_7164_FSS,true } };
 	
 	hs[HS1].gleisAusgang = 1;
 	hs[HS1].rkEinfahrt1 = rk_HS0HS1;
@@ -1123,7 +1148,6 @@ void Definition()
 	hs[HS11].zielHS1 = HS0;
 	hs[HS11].gleisAusgang = ausg_7168;
 
-	hs[HS12].gleisAusgang = 13;
 	hs[HS12].rkEinfahrt1 = rk_HS12ZumBahnhof;
 	hs[HS12].rkEinfahrt2 = rk_HS12ZurStadt;
 	hs[HS12].rkAusfahrt1 = rk_HS12ZumBahnhof;
@@ -1132,14 +1156,12 @@ void Definition()
 	hs[HS12].zielHS2 = HS7;
 	hs[HS12].gleisAusgang = ausg_6152;
 
-	hs[HS13].gleisAusgang = 13;
 	hs[HS13].rkEinfahrt1 = rk_BahnhofHS13;
 	hs[HS13].rkAusfahrt1 = rk_BahnhofHS13;
 	hs[HS13].zielHS1 = HS12;
 	hs[HS13].streckeAusfahrt = StreckeBahnhof;
 	hs[HS13].gleisAusgang = ausg_5154;
 
-	hs[HS14].gleisAusgang = 14;
 	hs[HS14].rkEinfahrt1 = rk_BahnhofHS14;
 	hs[HS14].rkAusfahrt1 = rk_BahnhofHS14;
 	hs[HS14].zielHS1 = HS12;
