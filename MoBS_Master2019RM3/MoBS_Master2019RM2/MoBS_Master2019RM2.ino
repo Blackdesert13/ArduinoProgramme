@@ -29,12 +29,20 @@ byte USBBefehlEingang[5];
 //Ausgänge
 byte outPinStart[6];
 
+#define PIN_WATCHDOG 12
+const unsigned long _Watchdog_ZeitInterval = 1000;
+unsigned long _Watchdog_NaechsterWechsel = 0;
+byte _zaehler_WatchDog =0;
+
 void setup()
 {
 	Wire.begin();
 	Serial.begin(9600);
 	pinMode(18, OUTPUT); digitalWrite(18, HIGH);
 	pinMode(19, OUTPUT); digitalWrite(19, HIGH);
+
+	pinMode(PIN_WATCHDOG, OUTPUT);
+	digitalWrite(PIN_WATCHDOG, _zaehler_WatchDog%2);
 
 	for (int i = 2; i<18; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
 	for (int i = 22; i<54; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
@@ -54,12 +62,24 @@ void setup()
 void loop()
 {
 	delay(1);
+	Watchdog();
 	USBDatenEmpfang();
 	//Rueckmeldung();
 	//RMvonSlaves();
 	RMvonSlavesNeu();
 	// SlaveAktivAbfrage();
 }
+
+void Watchdog() {
+	if (millis() > _Watchdog_NaechsterWechsel) {
+		_zaehler_WatchDog++;
+		digitalWrite(PIN_WATCHDOG, _zaehler_WatchDog % 2);
+		_Watchdog_NaechsterWechsel = _Watchdog_ZeitInterval + millis();
+
+		//Serial.write(NeuZeichnenBefehl, 5);
+	}
+}
+
 void USBDatenEmpfang()
 {
 	while (Serial.available()>0)
