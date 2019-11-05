@@ -65,8 +65,8 @@
 #define ausg_7168 28
 #define ausg_7169 31
 #define ausg_7163 30
-#define ausg_5251_We 32
-#define ausg_6252_We 33
+#define ausg_5251_We 33
+#define ausg_6252_We 32
 
 #define rk_HS1HS9 23
 #define rk_HS9HS10 22
@@ -92,11 +92,13 @@
 #define rk_HS12ZurStadt 9
 #define rk_BahnhofHS14 8
 #define rk_BahnhofHS13 7
+#define rk_Alternative 24
+#define rk_Bahnuebergang 25
 
 #include <Servo.h>
 #include <Wire.h>
 const byte ArdNr = 1;
-#define eingSo 24 // Anzahl Eingänge
+#define eingSo 26 // Anzahl Eingänge
 #define ausgSo 34 // Anzahl Ausgänge
 #define sAusgSo 0 // Anzahl ServoAusgänge
 #define hsSo 16 //   Anzahl Haltestellen
@@ -110,8 +112,11 @@ typedef void(*funcPtr_Haltestelle) (Haltestelle &haltestelle);
 
 void StandardAbfahrtsbedingung(Haltestelle &h);
 void AbfahrtsbedingungHS8(Haltestelle &h);
+void AbfahrtsbedingungHS7(Haltestelle &h);
 void HsEinAusfahrtsCheck(Haltestelle &h);
 void Hs1EinAusfahrtsCheck(Haltestelle &h);
+void Hs3EinAusfahrtsCheck(Haltestelle &h);
+void Hs6EinAusfahrtsCheck(Haltestelle &h);
 
 
 struct Eingang //für alle Arten von Schaltern, Reedkontakten, Lichtschranken 
@@ -269,6 +274,76 @@ void Hs1EinAusfahrtsCheck(Haltestelle &h) {
 	}
 }
 
+void Hs6EinAusfahrtsCheck(Haltestelle &h) {
+	//Ausfahrt, gibt die Haltestelle wieder wieder frei beim passieren der Ausfahrts-Reed-Kontakte
+	if ((EingAbfrageHLFlanke(h.rkAusfahrt1)) || (EingAbfrageHLFlanke(h.rkAusfahrt2))) {
+		bool schalten = true;
+		if (h.ausfahrtGleisCheck) {
+			Ausgang a = ausg[h.gleisAusgang];
+			if (!(bitRead(platinen[a.platine].Ausgaenge, a.ausgang))) {
+				schalten = false;
+			}
+		}
+		if (schalten) {
+			Serial.write(61);
+			AusgSchalten(h.gleisAusgang, false);
+			h.belegt = false;
+			h.blockiert = false;
+			h.abfahrtsZeit = 0;
+			h.alternativesZiel = false;
+		}
+	}
+
+	//Einfahrt
+	if (!h.belegt && (h.rkEinfahrt1 != 255) && eing[h.rkEinfahrt1].stellung) {
+		if (!h.belegt) {
+			Serial.write(62);
+		}
+		AusgSchalten(h.gleisAusgang, false);
+		h.belegt = true;
+		h.blockiert = false;
+		h.abfahrtsZeit = millis() + h.warteZeit;
+		/*if (sAusgSo > hs[i].autoStopServo) {
+		ServoSchalten(hs[i].autoStopServo, true);
+		}*/
+	}
+}
+
+void Hs3EinAusfahrtsCheck(Haltestelle &h) {
+	//Ausfahrt, gibt die Haltestelle wieder wieder frei beim passieren der Ausfahrts-Reed-Kontakte
+	if ((EingAbfrageHLFlanke(h.rkAusfahrt1)) || (EingAbfrageHLFlanke(h.rkAusfahrt2))) {
+		bool schalten = true;
+		if (h.ausfahrtGleisCheck) {
+			Ausgang a = ausg[h.gleisAusgang];
+			if (!(bitRead(platinen[a.platine].Ausgaenge, a.ausgang))) {
+				schalten = false;
+			}
+		}
+		if (schalten) {
+			Serial.write(61);
+			AusgSchalten(h.gleisAusgang, false);
+			h.belegt = false;
+			h.blockiert = false;
+			h.abfahrtsZeit = 0;
+			h.alternativesZiel = false;
+		}
+	}
+
+	//Einfahrt
+	if (!hs[HS8].blockiert && (h.rkEinfahrt1 != 255) && eing[h.rkEinfahrt1].stellung) {
+		if (!h.belegt) {
+			Serial.write(62);
+		}
+		AusgSchalten(h.gleisAusgang, false);
+		h.belegt = true;
+		h.blockiert = false;
+		h.abfahrtsZeit = millis() + h.warteZeit;
+		/*if (sAusgSo > hs[i].autoStopServo) {
+		ServoSchalten(hs[i].autoStopServo, true);
+		}*/
+	}
+}
+
 void HsEinAusfahrtsCheck(Haltestelle &h) {
 	//Ausfahrt, gibt die Haltestelle wieder wieder frei beim passieren der Ausfahrts-Reed-Kontakte
 	if ((EingAbfrageHLFlanke(h.rkAusfahrt1)) || (EingAbfrageHLFlanke(h.rkAusfahrt2))) {
@@ -332,6 +407,38 @@ void StandardAbfahrtsbedingung(Haltestelle &h) {
 	h.abfahren = true;
 }
 
+void AbfahrtsbedingungHS7(Haltestelle &h) {
+	h.abfahren = false;
+	if (eing[rk_Bahnuebergang].stellung) {
+		return;
+	}
+
+	byte zHS = h.alternativesZiel ? h.zielHS2 : h.zielHS1;// lokale Variable für Ziel-Haltestelle
+	if (zHS >= hsSo) {
+		return;
+	}
+
+	//prüft ob  die Ziel-Haltestelle belegt oder blockiert ist
+	if (hs[zHS].belegt || hs[zHS].blockiert) {
+		return;
+	}
+
+	//prüft ob eine ew. Strecke frei ist
+	if (h.streckeAusfahrt < skSo && sk[h.streckeAusfahrt].belegt) {
+		return;
+	}
+
+	// prüft ew. NachbarHaltestellen auf Vorrang
+	if (h.nachbarHS < hsSo && hs[h.nachbarHS].abfahrtsZeitErreicht) {
+		if (hs[h.nachbarHS].abfahrtsZeit >= h.abfahrtsZeit) {
+			return;
+		}
+	}
+	Serial.write(60);
+	Serial.write(h.gleisAusgang);
+	h.abfahren = true;
+}
+
 void AbfahrtsbedingungHS8(Haltestelle &h) {
 	StandardAbfahrtsbedingung(h);
 	if (h.abfahren) {
@@ -343,6 +450,7 @@ void AbfahrtsbedingungHS8(Haltestelle &h) {
 }
 
 void setup() {
+	Wire.begin();
 	Serial.begin(9600);
 	Definition();
 	delay(1000);
@@ -539,7 +647,7 @@ void USBEingangsZustand()
 	byte befehl1[5];
 	for (int i = 0; i<8; i++) { bitWrite(befehl1[2], i, eing[i + 16].stellung); }
 	befehl1[3] = 0;
-	//for (int i = 0; i<8; i++) { bitWrite(befehl1[3], i, eing[i + 24].stellung); }
+	for (int i = 0; i<2; i++) { bitWrite(befehl1[3], i, eing[i + 24].stellung); }
 	befehl1[1] = 11;
 	BefehlAnPC(befehl1);
 }
@@ -629,7 +737,7 @@ void BefehlAnSlave(byte Befehl[5])
 { //sendet einen Befehl an den PC, Kontrollbyte und Arduino-Nummer werden automatisch ergänzt    
 	Befehl[0] = ArdNr;
 	Befehl[4] = Befehl[0] + Befehl[1] + Befehl[2] + Befehl[3];
-	Wire.write(Befehl, 5);
+	//Wire.write(Befehl, 5);
 }
 
 void BefehlsAusfuehrung(byte Befehl[5])
@@ -793,6 +901,13 @@ void HaltestellenCheck()
 
 void HaltestellenAbfahrt()
 {
+	if (eing[rk_Bahnuebergang].stellung && !hs[HS8].blockiert) {
+		AusgSchalten(ausg_7153, false);
+	}
+	else {
+		AusgSchalten(ausg_7153, true);
+	}
+
 	for (int i = 0; i < hsSo; i++)
 	{
 		if (hs[i].abfahren)
@@ -1014,11 +1129,16 @@ void Definition()
 	eing[21].eingang = 7;
 	eing[22].eingang = 8;
 	eing[23].eingang = 9;
+	eing[24].eingang = 10;
+	eing[25].eingang = 11;
 	for (int i = 0; i < eingSo; i++)
 	{
 		delay(1);
 		pinMode(eing[i].eingang, INPUT_PULLUP);
 	}
+
+	pinMode(21, INPUT_PULLUP);
+	pinMode(20, INPUT_PULLUP);
 
 	platinen[0].Arduino = ArdNr;
 	platinen[0].Befehl = 41;
@@ -1047,6 +1167,7 @@ void Definition()
 
 	for (int i = 0; i<32; i++)
 	{
+		digitalWrite(22 + i, HIGH);
 		pinMode(22 + i, OUTPUT);
 		//digitalWrite(22 + i, LOW);
 		////digitalWrite(ausgang[i].ausgang,HIGH);
@@ -1056,16 +1177,19 @@ void Definition()
 		//delay(10);
 	}
 
-	hs[HS0].gleisAusgang = 0;
 	hs[HS0].rkEinfahrt1 = rk_HS11HS0;
 	hs[HS0].rkAusfahrt1 = rk_HS0HS1;
 	hs[HS0].zielHS1 = HS1;
+	hs[HS0].nachbarHS = HS8;
 	hs[HS0].streckeAusfahrt = StreckeTeil7;
 	hs[HS0].gleisAusgang = ausg_7169;
-	hs[HS0].anzSchaltbefehle = 2;
-	hs[HS0].Schaltbefehle = new Schaltbefehl[2]{ {ausg_7171_FSS,true},{ ausg_7161_7164_FSS,true } };
-	
-	hs[HS1].gleisAusgang = 1;
+	hs[HS0].anzSchaltbefehle = 3;
+	hs[HS0].Schaltbefehle = new Schaltbefehl[3]{ 
+		{ ausg_7172_FSS,false },//Herzstück ausfahrt HS0
+		{ ausg_7161_7164_FSS,false },//Fss Strecke über HS1
+		{ ausg_7158_FSS,false } //Herzstück einfahrt HS2
+	};
+
 	hs[HS1].rkEinfahrt1 = rk_HS0HS1;
 	hs[HS1].rkEinfahrt2 = rk_HS1vorn;
 	hs[HS1].rkAusfahrt1 = rk_HS1HS9;
@@ -1074,51 +1198,110 @@ void Definition()
 	hs[HS1].zielHS2 = HS9;
 	hs[HS1].EinAusfahrtsCheck = Hs1EinAusfahrtsCheck;
 	hs[HS1].gleisAusgang = ausg_7163;
+	hs[HS1].anzSchaltbefehle = 2;
+	hs[HS1].Schaltbefehle = new Schaltbefehl[2]{
+		{ ausg_7161_7164_FSS,false },//Fss Strecke über HS1
+		{ ausg_7158_FSS,false } //Herzstück einfahrt HS2
+	};
+	hs[HS1].anzSchaltbefehleAlternativesZiel = 2;
+	hs[HS1].SchaltbefehleAlternativesZiel = new Schaltbefehl[2]{
+		{ ausg_7161_7164_FSS,true },//Fss Strecke über HS1
+		{ ausg_7172_FSS,true },//Herzstück einfahrt HS9
+	};
 	
-	hs[HS2].gleisAusgang = 2; 
 	hs[HS2].rkEinfahrt1 = rk_EinHS2;
 	hs[HS2].rkAusfahrt1 = rk_AusHS2;
 	hs[HS2].zielHS1 = HS3;
+	hs[HS2].nachbarHS = HS7;
 	hs[HS2].streckeAusfahrt = StreckeTeil6_7;
 	hs[HS2].gleisAusgang = ausg_7160;
+	hs[HS2].anzSchaltbefehle = 3;
+	hs[HS2].Schaltbefehle = new Schaltbefehl[3]{
+		{ ausg_7154_FSS,false },//Herzstück ausfahrt HS2
+		{ ausg_6162_7151_7152_FSS,false },//Fss Strecke Teil7-Teil6
+		{ ausg_6161_FSS,false } //Herzstück einfahrt HS3
+	};
 	
-	hs[HS3].gleisAusgang = 3;
 	hs[HS3].rkEinfahrt1 = rk_EinHS3;
 	hs[HS3].rkAusfahrt1 = rk_AusHS3; 
 	hs[HS3].zielHS1 = HS4; 
 	hs[HS3].zielHS2 = HS12;
+	hs[HS3].nachbarHS = HS6;
 	hs[HS3].streckeAusfahrt = StreckeTeil4_5_6;
+	hs[HS3].EinAusfahrtsCheck = Hs3EinAusfahrtsCheck;
 	hs[HS3].gleisAusgang = ausg_6155;
+	hs[HS3].anzSchaltbefehle = 6;
+	hs[HS3].Schaltbefehle = new Schaltbefehl[6]{
+		{ ausg_6160_FSS,false }, //Herzstück ausfahrt HS3
+		{ ausg_6154_FSS,false }, //FSS bis Weiche
+		{ ausg_6252_We,false }, //aWeiche
+		{ ausg_5156_6156_FSS,false },//Fss Strecke Teil 5-6
+		{ ausg_3156_4156_FSS,false }, //Fss Strecke Teil 3-4-6
+		{ ausg_3155_FSS,false } //Herzstück einfahrt HS4
+	};
+	hs[HS3].anzSchaltbefehleAlternativesZiel = 4;
+	hs[HS3].SchaltbefehleAlternativesZiel = new Schaltbefehl[4]{
+		{ ausg_6160_FSS,false }, //Herzstück ausfahrt HS3
+		{ ausg_6154_FSS,false }, //FSS bis Weiche
+		{ ausg_6252_We,false }, //Weiche
+		{ ausg_5152_6151_FSS,false }//Fss nach Weiche
+	};
 
-	hs[HS4].gleisAusgang = 4; 
 	hs[HS4].rkEinfahrt1 = rk_EinHS4;
 	hs[HS4].rkAusfahrt1 = rk_AusHS4; 
-	hs[HS4].zielHS1 = HS5; 
+	hs[HS4].zielHS1 = HS5;
 	hs[HS4].streckeAusfahrt = StreckeTeil2;
-	hs[HS4].gleisAusgang = ausg_3151;
-	 
-	hs[HS5].gleisAusgang = 5;
+	hs[HS4].gleisAusgang = ausg_3151; 
+	hs[HS4].anzSchaltbefehle = 3;
+	hs[HS4].Schaltbefehle = new Schaltbefehl[3]{
+		{ ausg_3154_FSS,false }, //Herzstück ausfahrt HS4
+		{ ausg_1152_2152_3152_FSS,false }, //FSS Teil 2
+		{ ausg_1154_FSS,false } //Schleuse Dorf, innen
+	};
+
 	hs[HS5].rkEinfahrt1 = rk_EinHS5;
 	hs[HS5].rkAusfahrt1 = rk_AusHS5;
 	hs[HS5].zielHS1 = HS6; 
 	hs[HS5].streckeAusfahrt = StreckeTeil2;
 	hs[HS5].gleisAusgang = ausg_1151;
+	hs[HS5].anzSchaltbefehle = 3;
+	hs[HS5].Schaltbefehle = new Schaltbefehl[3]{
+		{ ausg_1154_FSS,true }, //Schleuse Dorf, innen
+		{ ausg_1152_2152_3152_FSS,true }, //FSS Teil 2
+		{ ausg_3154_FSS,true } //Herzstück einfahrt HS6
+	};
 	
-	hs[HS6].gleisAusgang = 6; 
 	hs[HS6].rkEinfahrt1 = rk_EinHS6;
 	hs[HS6].rkAusfahrt1 = rk_AusHS6;
 	hs[HS6].zielHS1 = HS7;
+	hs[HS6].nachbarHS = HS3;
 	hs[HS6].streckeAusfahrt = StreckeTeil4_5_6;
 	hs[HS6].gleisAusgang = ausg_3152;
-					   
-	hs[HS7].gleisAusgang = 7;
+	hs[HS6].EinAusfahrtsCheck = Hs6EinAusfahrtsCheck;
+	hs[HS6].anzSchaltbefehle = 6;
+	hs[HS6].Schaltbefehle = new Schaltbefehl[6]{
+		{ ausg_3155_FSS,true }, //Herzstück ausfahrt HS6
+		{ ausg_5156_6156_FSS,true },//Fss Strecke Teil 5-6
+		{ ausg_3156_4156_FSS,true }, //Fss Strecke Teil 3-4-6
+		{ ausg_6252_We,true }, //Weiche
+		{ ausg_6154_FSS,true }, //FSS bis Weiche
+		{ ausg_6160_FSS,true } //Herzstück einfahrt HS7
+	};
+	
 	hs[HS7].rkEinfahrt1 = rk_EinHS7;
 	hs[HS7].rkAusfahrt1 = rk_AusHS7; 
 	hs[HS7].zielHS1 = HS8;
+	hs[HS7].nachbarHS = HS2;
 	hs[HS7].streckeAusfahrt = StreckeTeil6_7;
+	hs[HS7].AbfahrtsBedingung = AbfahrtsbedingungHS7;
 	hs[HS7].gleisAusgang = ausg_6158;
+	hs[HS7].anzSchaltbefehle = 3;
+	hs[HS7].Schaltbefehle = new Schaltbefehl[3]{
+		{ ausg_6161_FSS,true }, //Herzstück ausfahrt HS7
+		{ ausg_6162_7151_7152_FSS,true },//Fss Strecke Teil7-Teil6
+		{ ausg_7154_FSS,true }//Herzstück einfahrt HS8
+	};
 	
-	hs[HS8].gleisAusgang = 8; 
 	hs[HS8].rkEinfahrt1 = rk_EinHS8;
 	hs[HS8].rkAusfahrt1 = rk_AusHS8; 
 	hs[HS8].zielHS1 = HS1;
@@ -1126,23 +1309,26 @@ void Definition()
 	hs[HS8].nachbarHS = HS0;
 	hs[HS8].AbfahrtsBedingung = AbfahrtsbedingungHS8;
 	hs[HS8].gleisAusgang = ausg_7157;
+	hs[HS8].anzSchaltbefehle = 3;
+	hs[HS8].Schaltbefehle = new Schaltbefehl[3]{
+		{ ausg_7158_FSS,true }, //Herzstück ausfahrt HS8
+		{ ausg_7161_7164_FSS,true },//Fss Strecke über HS1
+		{ ausg_7172_FSS,true },//Herzstück einfahrt HS9
+	};
 	
 	hs[HS9].warteZeit = 500;
-	hs[HS9].gleisAusgang = 9;
 	hs[HS9].rkEinfahrt1 = rk_HS1HS9;
 	hs[HS9].rkAusfahrt1 = rk_HS9HS10; 
 	hs[HS9].zielHS1 = HS10;
 	hs[HS9].gleisAusgang = ausg_7166;
 
 	hs[HS10].warteZeit = 500;
-	hs[HS10].gleisAusgang = 10;
 	hs[HS10].rkEinfahrt1 = rk_HS9HS10;
 	hs[HS10].rkAusfahrt1 = rk_HS10HS11;
 	hs[HS10].zielHS1 = HS11;
 	hs[HS10].gleisAusgang = ausg_7167;
 
 	hs[HS11].warteZeit = 500;
-	hs[HS11].gleisAusgang = 11;
 	hs[HS11].rkEinfahrt1 = rk_HS10HS11;
 	hs[HS11].rkAusfahrt1 = rk_HS11HS0;
 	hs[HS11].zielHS1 = HS0;
@@ -1170,22 +1356,22 @@ void Definition()
 
 	sk[StreckeTeil7].anzahlRkAusfahrt = 2;
 	sk[StreckeTeil7].rkAusfahrt = new byte[2]{ rk_EinHS2, rk_HS1HS9 };
-	sk[StreckeTeil7].anzahlRkEinfahrt = 2;
+	sk[StreckeTeil7].anzahlRkEinfahrt = 0;
 	sk[StreckeTeil7].rkEinfahrt = new byte[2]{ rk_AusHS8, rk_HS0HS1 };
 
 	sk[StreckeTeil6_7].anzahlRkAusfahrt = 2;
 	sk[StreckeTeil6_7].rkAusfahrt = new byte[2]{ rk_EinHS3, rk_EinHS8 };
-	sk[StreckeTeil6_7].anzahlRkEinfahrt = 2;
+	sk[StreckeTeil6_7].anzahlRkEinfahrt = 0;
 	sk[StreckeTeil6_7].rkEinfahrt = new byte[2]{ rk_AusHS2, rk_AusHS7 };
 
 	sk[StreckeTeil4_5_6].anzahlRkAusfahrt = 3;
 	sk[StreckeTeil4_5_6].rkAusfahrt = new byte[3]{ rk_EinHS7, rk_EinHS4, rk_HS12ZurStadt };
-	sk[StreckeTeil4_5_6].anzahlRkEinfahrt = 2;
+	sk[StreckeTeil4_5_6].anzahlRkEinfahrt = 0;
 	sk[StreckeTeil4_5_6].rkEinfahrt = new byte[2]{ rk_AusHS3, rk_AusHS6 };
 
 	sk[StreckeTeil2].anzahlRkAusfahrt = 2;
 	sk[StreckeTeil2].rkAusfahrt = new byte[2]{rk_EinHS6, rk_EinHS5};
-	sk[StreckeTeil2].anzahlRkEinfahrt = 2;
+	sk[StreckeTeil2].anzahlRkEinfahrt = 0;
 	sk[StreckeTeil2].rkEinfahrt = new byte[2]{rk_AusHS5, rk_AusHS4};
 
 	sk[StreckeBahnhof].anzahlRkAusfahrt = 3;

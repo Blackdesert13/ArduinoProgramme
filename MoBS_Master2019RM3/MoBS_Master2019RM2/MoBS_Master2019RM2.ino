@@ -6,7 +6,7 @@ struct SlaveRM
 	byte Befehl1[5];
 };
 byte RMEingang[10];//zu Aufnehmen des RM-Befehls vom Slave
-const int RMArdSo = 4;//Anzahl der zu lesenden RM Arduinos 
+const int RMArdSo = 5;//Anzahl der zu lesenden RM Arduinos 
 SlaveRM SlaveRMAblage[RMArdSo];
 const byte NeuZeichnenBefehl[5] = { 1,19,0,0,20 };
 const byte AlleAusgaengeSendenBefehl[5] = { 1,49,0,0,50 };
@@ -29,7 +29,7 @@ byte USBBefehlEingang[5];
 //Ausgänge
 byte outPinStart[6];
 
-#define PIN_WATCHDOG 12
+#define PIN_WATCHDOG 13
 const unsigned long _Watchdog_ZeitInterval = 1000;
 unsigned long _Watchdog_NaechsterWechsel = 0;
 byte _zaehler_WatchDog =0;
@@ -397,6 +397,7 @@ void RMSlaveDefinition()
 	SlaveRMAblage[1].Befehl0[0] = 6;
 	SlaveRMAblage[2].Befehl0[0] = 3;
 	SlaveRMAblage[3].Befehl0[0] = 4;
+	SlaveRMAblage[4].Befehl0[0] = 5;
 	for (int i = 0; i < RMArdSo; i++) {
 		SlaveRMAblage[i].Befehl1[0] = SlaveRMAblage[i].Befehl0[0];
 		SlaveRMAblage[i].Befehl0[1] = 10;

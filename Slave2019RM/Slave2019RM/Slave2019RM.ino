@@ -10,7 +10,7 @@ vorl�ufig �ber Serial gesendet
 */
 #include <Servo.h>
 #include <Wire.h>
-const byte ArdNr = 4;//ArduinoNummer
+const byte ArdNr = 5;//ArduinoNummer
 unsigned long timeAkt;//aktuelle Zeit
 //unsigned long lastRMupdateTime = 0;//Speichert die Zeit des letzten R�ckmelde-Updates
 byte outPinStart[6];
@@ -54,18 +54,27 @@ void setup()
 	Wire.begin(ArdNr);//(ArdNr);       receiveEvent        
 	Wire.onReceive(receiveEvent); // register event
 	Wire.onRequest(requestEvent); //EreignisMethode zur Datenabfrage
-	for (int i = 2; i<18; i++) { pinMode(i, OUTPUT); digitalWrite(i, LOW); }
-	for (int i = 22; i<54; i++) { pinMode(i, OUTPUT); digitalWrite(i, LOW); }
-	delay(2000);
-	for (int i = 22; i<54; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
-	for (int i = 2; i<18; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
+	//for (int i = 2; i<18; i++) { pinMode(i, OUTPUT); digitalWrite(i, LOW); }
+	//for (int i = 22; i<54; i++) { pinMode(i, OUTPUT); digitalWrite(i, LOW); }
+	//delay(2000);
+	//for (int i = 2; i<18; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
+	//for (int i = 22; i<54; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
+	for (int i = 2; i<18; i++) { 
+		digitalWrite(i, HIGH); 
+		pinMode(i, OUTPUT); 
+	}
+	for (int i = 22; i<54; i++) { 
+		digitalWrite(i, HIGH); 
+		pinMode(i, OUTPUT); 
+	}
 	outPinStart[0] = 2;//festlegen des Output-Pins f�r Adresse0 und Bit0
 	outPinStart[1] = 10;//festlegen des Output-Pins f�r Adresse1 und Bit0
 	outPinStart[2] = 22;//festlegen des Output-Pins f�r Adresse2 und Bit0
 	outPinStart[3] = 30;//festlegen des Output-Pins f�r Adresse3 und Bit0
 	outPinStart[4] = 38;//festlegen des Output-Pins f�r Adresse4 und Bit0
 	outPinStart[5] = 46;//festlegen des Output-Pins f�r Adresse5 und Bit0
-	pinMode(18, OUTPUT);   pinMode(19, OUTPUT);
+	pinMode(18, OUTPUT);   
+	pinMode(19, OUTPUT);
 	RMBefehl[0] = ArdNr;
 	RMBefehl[1] = 10;
 	RMBefehl[5] = ArdNr;
