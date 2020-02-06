@@ -458,7 +458,6 @@ void setup() {
 
 void loop() {
 	USBAnzeige();
-	//USBAnzeigeSK();
 	AnlagenCheck();
 	//  delay(5);
 	for (int i = 0; i < platSo; i++) {
@@ -470,7 +469,7 @@ void loop() {
 					ByteToRelais(highByte(platinen[i].Ausgaenge), 30);
 				}
 				else if (platinen[i].Befehl == 42) {
-					Serial.write(99);
+					//Serial.write(99);
 
 					ByteToRelais(lowByte(platinen[i].Ausgaenge), 38);
 					ByteToRelais(highByte(platinen[i].Ausgaenge), 46);
@@ -734,10 +733,12 @@ void BefehlAnPC(byte Befehl[5])
 }
 
 void BefehlAnSlave(byte Befehl[5])
-{ //sendet einen Befehl an den PC, Kontrollbyte und Arduino-Nummer werden automatisch ergänzt    
-	Befehl[0] = ArdNr;
+{ 
 	Befehl[4] = Befehl[0] + Befehl[1] + Befehl[2] + Befehl[3];
-	//Wire.write(Befehl, 5);
+	Serial.write(Befehl, 5);
+	Wire.beginTransmission(Befehl[0]);
+	Wire.write(Befehl, 5);
+	Wire.endTransmission();
 }
 
 void BefehlsAusfuehrung(byte Befehl[5])
@@ -783,6 +784,7 @@ void BefehlsAusfuehrung(byte Befehl[5])
 	{//PermanentOutput 16Bit auf Adresse2
 		for (int i = 0; i < platSo; i++) {
 			if (platinen[i].Arduino == Befehl[0] && platinen[i].Befehl == 42) {
+				Serial.write(42);
 				platinen[i].Ausgaenge = ((unsigned short)(Befehl[3] << 8)) + Befehl[2];
 				platinen[i].senden = true;
 			}
@@ -798,7 +800,7 @@ void ByteToRelais(byte datenByte, int startPin)
 	for (int i = 0; i<8; i++) { 
 		digitalWrite(i + startPin, bitRead(datenByte, i)); 
 		if (i + startPin > 51) {
-			Serial.write(bitRead(datenByte, i));
+			//Serial.write(bitRead(datenByte, i));
 		}
 	}
 }
@@ -1147,7 +1149,7 @@ void Definition()
 	platinen[1].Befehl = 42;
 	platinen[1].senden = true;
 	platinen[2].Arduino = 2;
-	platinen[2].Befehl = 41;
+	platinen[2].Befehl = 42;
 	platinen[2].senden = true;
 
 	for (int i = 0; i < 32; i++){
@@ -1160,9 +1162,9 @@ void Definition()
 		}
 		
 	}
-	ausg[32].ausgang = 0;
+	ausg[32].ausgang = 30;
 	ausg[32].platine = 2;
-	ausg[33].ausgang = 1;
+	ausg[33].ausgang = 28;
 	ausg[33].platine = 2;
 
 	for (int i = 0; i<32; i++)
@@ -1231,10 +1233,11 @@ void Definition()
 	hs[HS3].EinAusfahrtsCheck = Hs3EinAusfahrtsCheck;
 	hs[HS3].gleisAusgang = ausg_6155;
 	hs[HS3].anzSchaltbefehle = 6;
+	hs[HS3].rkAlternativesZiel = rk_Alternative;
 	hs[HS3].Schaltbefehle = new Schaltbefehl[6]{
 		{ ausg_6160_FSS,false }, //Herzstück ausfahrt HS3
 		{ ausg_6154_FSS,false }, //FSS bis Weiche
-		{ ausg_6252_We,false }, //aWeiche
+		{ ausg_6252_We,false }, //Weiche
 		{ ausg_5156_6156_FSS,false },//Fss Strecke Teil 5-6
 		{ ausg_3156_4156_FSS,false }, //Fss Strecke Teil 3-4-6
 		{ ausg_3155_FSS,false } //Herzstück einfahrt HS4
@@ -1243,7 +1246,7 @@ void Definition()
 	hs[HS3].SchaltbefehleAlternativesZiel = new Schaltbefehl[4]{
 		{ ausg_6160_FSS,false }, //Herzstück ausfahrt HS3
 		{ ausg_6154_FSS,false }, //FSS bis Weiche
-		{ ausg_6252_We,false }, //Weiche
+		{ ausg_6252_We,true }, //Weiche
 		{ ausg_5152_6151_FSS,false }//Fss nach Weiche
 	};
 
