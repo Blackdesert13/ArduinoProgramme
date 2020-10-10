@@ -135,6 +135,7 @@ int halteZeit = 1000;
 unsigned long debugZeit = 0;
 int zustand = 0;
 
+
 struct Platine {
 	unsigned short Ausgaenge;
 	byte Arduino;
