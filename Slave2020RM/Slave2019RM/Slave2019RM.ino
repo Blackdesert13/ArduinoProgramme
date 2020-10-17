@@ -42,12 +42,16 @@ byte RMMesswerteAuswertung[32];
 //long RMinterval = 100;//Interval zum lesen der R�ckmelder
 byte RMSchwelle = 240;/*Schaltschwelle unter der
 					  ein analoger Eingang f�r R�ckmeldung als aktiv gewertet wird*/
+byte RMMesswEin = 3;
+byte RMMesswAus = 1;
 byte RMAnalyse = 255;//die RM-Nummer zum Messwert senden über USB 
 
 unsigned long RMZeitAktualisierungUSB = 0;//n�chste RM-Aktualisierung
 int RMUSBInterval = 1000;
 byte USBBefehlEingang[5];
 int USBDatenEingangByteZahler;
+
+unsigned long letzteZeitMessung;
 
 void setup()
 {
@@ -61,13 +65,13 @@ void setup()
 	//delay(2000);
 	//for (int i = 2; i<18; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
 	//for (int i = 22; i<54; i++) { pinMode(i, OUTPUT); digitalWrite(i, HIGH); }
-	for (int i = 2; i<18; i++) { 
-		digitalWrite(i, HIGH); 
-		pinMode(i, OUTPUT); 
+	for (int i = 2; i < 18; i++) {
+		digitalWrite(i, HIGH);
+		pinMode(i, OUTPUT);
 	}
-	for (int i = 22; i<54; i++) { 
-		digitalWrite(i, HIGH); 
-		pinMode(i, OUTPUT); 
+	for (int i = 22; i < 54; i++) {
+		digitalWrite(i, HIGH);
+		pinMode(i, OUTPUT);
 	}
 	outPinStart[0] = 2;//festlegen des Output-Pins f�r Adresse0 und Bit0
 	outPinStart[1] = 10;//festlegen des Output-Pins f�r Adresse1 und Bit0
@@ -75,7 +79,7 @@ void setup()
 	outPinStart[3] = 30;//festlegen des Output-Pins f�r Adresse3 und Bit0
 	outPinStart[4] = 38;//festlegen des Output-Pins f�r Adresse4 und Bit0
 	outPinStart[5] = 46;//festlegen des Output-Pins f�r Adresse5 und Bit0
-	pinMode(18, OUTPUT);   
+	pinMode(18, OUTPUT);
 	pinMode(19, OUTPUT);
 	RMBefehl[0] = ArdNr;
 	RMBefehl[1] = 10;
@@ -83,8 +87,8 @@ void setup()
 	RMBefehl[6] = 11;
 
 	//RMsendenSerial();
-	RMBefehl[0]=ArdNr; RMBefehl[5]=ArdNr;
-	RMBefehl[1]=10   ; RMBefehl[6]=11   ;
+	RMBefehl[0] = ArdNr; RMBefehl[5] = ArdNr;
+	RMBefehl[1] = 10; RMBefehl[6] = 11;
 	//RM-Messwerte definieren
 	for (int i = 0; i < 32; i++)
 	{
@@ -93,7 +97,7 @@ void setup()
 	}
 	//RMsendenSerial();
 }
-void loop(){
+void loop() {
 	delay(1);
 	USBDatenEmpfang();
 	RueckmeldungSlave();
@@ -105,7 +109,7 @@ void loop(){
 	}
 }//ende von loop
 
-void RueckmeldungSlaveUSB() 
+void RueckmeldungSlaveUSB()
 {
 	//RMMesswerteAuswerten();
 	Serial.write(RMMesswerteAuswertung, 32);
@@ -121,30 +125,43 @@ void RueckmeldungSlaveUSB()
 }
 void RueckmeldungSlave()// vormals Rueckmeldung2
 { //aktuell 6.10.20 Version 
+	zeitMessung(letzteZeitMessung);
+	letzteZeitMessung = millis();
 	int RMNr = 0;
 	byte bitNr, byteNr;
-	for (int w = 0; w<10; w++)//es werden alle Eing�nge 10x ausgemessen
+	for (int w = 0; w < 10; w++)//es werden alle Eing�nge 10x ausgemessen
 	{
-		for (int h = 0; h<2; h++)//beide Adressen der 16er RM-Gruppen
+		for (int h = 0; h < 2; h++)//beide Adressen der 16er RM-Gruppen
 		{//Schleife f�r beide Adressen
 			digitalWrite(18, HIGH);
 			digitalWrite(19, HIGH);
 			digitalWrite(18 + h, LOW);
-			for (int i = 0; i<16; i++)//16 Analog-Eing�nge werden eingelesen
+			for (int i = 0; i < 16; i++)//16 Analog-Eing�nge werden eingelesen
 			{//Schleife f�r eine Adresse
 				bitNr = i % 8;
 				byteNr = (i / 8) + 2 + (5 * h);
 				RMNr = (h * 16) + i;//berechnet die RM-Nummer (0-31)
 				RMMessWert[RMNr][w] = analogRead(i) / 4;//Messwert wird auf durch Division durch 4 auf Byte-gr�sse reduziert
 				RMMesswerteAuswertung[RMNr] = 255;// setzt die Auswertung zurück
-				for (int a = 0; a < 10; a++) {//auswerten der letzten 10 Messwerte eines RM
+				
+				//neue Auswertung:
+				byte z = 0;//Zähler
+				for (int a = 0; a < 10; a++){
+					if (RMMessWert[RMNr][a] < RMSchwelle) { z++; }
+                }
+				if(z >= RMMesswEin) { bitWrite(RMBefehl[byteNr], bitNr, 1); }
+				if (z <= RMMesswAus) { bitWrite(RMBefehl[byteNr], bitNr, 0); }
+				//letzte Auswertung:
+				//es wird der kleinste Messwert ermittelt
+				//ist ein Wert unter dem Schwellwert wird "belegt" gemeldet
+			    /*for (int a = 0; a < 10; a++) {//auswerten der letzten 10 Messwerte eines RM
 					if (RMMessWert[RMNr][a] < RMMesswerteAuswertung[RMNr]) 
 					{ 
 						RMMesswerteAuswertung[RMNr] = RMMessWert[RMNr][a]; 
 					}
 				}
 				if(RMMesswerteAuswertung[RMNr]<RMSchwelle){ bitWrite(RMBefehl[byteNr], bitNr, 1); }
-				else{ bitWrite(RMBefehl[byteNr], bitNr, 0); }
+				else{ bitWrite(RMBefehl[byteNr], bitNr, 0); }*/
 			}
 		}
 	}
@@ -495,6 +512,7 @@ void RelaisTest() {
 		//pinMode(i, OUTPUT);
 	}
 }
+
 void RMTestfuerMoBS_USB() {
 	if (millis() > naechsterTestWechsel) {
 		if (RMBefehl[2] > 0) {
