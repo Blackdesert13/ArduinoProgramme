@@ -88,7 +88,7 @@ void USBDatenEmpfang()
 		if (USBDatenEingangByteZahler<5)
 		{
 			USBBefehlEingang[USBDatenEingangByteZahler] = Serial.read();
-			Serial.write(USBBefehlEingang[USBDatenEingangByteZahler]);
+			//Serial.write(USBBefehlEingang[USBDatenEingangByteZahler]);
 		}
 		else {}//{ BefehlSchieben(); BefehlInput[4]=Serial.read();}
 			   // Serial.write(bz);    
@@ -195,39 +195,41 @@ void RMvonSlavesNeu()
 				bz++;
 
 			}
-			if ((byte)(RMEingang[0] + RMEingang[1] + RMEingang[2] + RMEingang[3]) == RMEingang[4])//KontrollByte prüfen
-			{
-				if (RMEingang[2] != SlaveRMAblage[i].Befehl0[2])// bei Veränderung
+			if (RMEingang[0] == SlaveRMAblage[i].Befehl0[0]) {
+				if ((byte)(RMEingang[0] + RMEingang[1] + RMEingang[2] + RMEingang[3]) == RMEingang[4])//KontrollByte prüfen
 				{
-					//Serial.write(60);
-					SlaveRMAblage[i].Befehl0[2] = RMEingang[2];
-					SlaveRMAblage[i].neu[0] = true;
-					senden = true;
+					if (RMEingang[2] != SlaveRMAblage[i].Befehl0[2])// bei Veränderung
+					{
+						//Serial.write(60);
+						SlaveRMAblage[i].Befehl0[2] = RMEingang[2];
+						SlaveRMAblage[i].neu[0] = true;
+						senden = true;
+					}
+					if (RMEingang[3] != SlaveRMAblage[i].Befehl0[3])// bei Veränderung
+					{
+						//Serial.write(61);
+						SlaveRMAblage[i].Befehl0[3] = RMEingang[3];
+						SlaveRMAblage[i].neu[0] = true;
+						senden = true;
+					}
 				}
-				if (RMEingang[3] != SlaveRMAblage[i].Befehl0[3])// bei Veränderung
+				if ((byte)(RMEingang[5] + RMEingang[6] + RMEingang[7] + RMEingang[8]) == RMEingang[9])//KontrollByte prüfen
 				{
-					//Serial.write(61);
-					SlaveRMAblage[i].Befehl0[3] = RMEingang[3];
-					SlaveRMAblage[i].neu[0] = true;
-					senden = true;
-				}
-			}
-			if ((byte)(RMEingang[5] + RMEingang[6] + RMEingang[7] + RMEingang[8]) == RMEingang[9])//KontrollByte prüfen
-			{
-				//Serial.write(76);				
-				if (RMEingang[7] != SlaveRMAblage[i].Befehl1[2])// bei Veränderung
-				{
-					//Serial.write(62);
-					SlaveRMAblage[i].Befehl1[2] = RMEingang[7];
-					SlaveRMAblage[i].neu[1] = true;
-					senden = true;
-				}
-				if (RMEingang[8] != SlaveRMAblage[i].Befehl1[3])// bei Veränderung
-				{
-					//Serial.write(63);
-					SlaveRMAblage[i].Befehl1[3] = RMEingang[8];
-					SlaveRMAblage[i].neu[1] = true;
-					senden = true;
+					//Serial.write(76);				
+					if (RMEingang[7] != SlaveRMAblage[i].Befehl1[2])// bei Veränderung
+					{
+						//Serial.write(62);
+						SlaveRMAblage[i].Befehl1[2] = RMEingang[7];
+						SlaveRMAblage[i].neu[1] = true;
+						senden = true;
+					}
+					if (RMEingang[8] != SlaveRMAblage[i].Befehl1[3])// bei Veränderung
+					{
+						//Serial.write(63);
+						SlaveRMAblage[i].Befehl1[3] = RMEingang[8];
+						SlaveRMAblage[i].neu[1] = true;
+						senden = true;
+					}
 				}
 			}
 			//	Serial.write(NeuZeichnenBefehl, 5);
